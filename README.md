@@ -20,11 +20,22 @@ Vault Rust is a CLI tool that works like Keepass. Data is encrypted using AES 25
 
 ## Installation
 
+In Release
+
+- Windows
+- linux
+
+## From Sources
+
 ### Compile from sources
 
 ```bash
 cargo build
 ```
+
+### Compile with docker for linux
+
+docker run --rm -v "%cd%":/usr/src/vault-rust -w /usr/src/vault-rust rust:latest cargo build --target x86_64-unknown-linux-gnu
 
 ## Usage
 
