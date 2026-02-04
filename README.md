@@ -17,10 +17,11 @@ Vault Rust is a CLI tool that works like Keepass. Data is encrypted using AES 25
 - Create Vault File
 - Save Credentials
 - Retreive Credentials
+- Generate Secure Password
 
 ## Installation
 
-In Release
+Release
 
 - Windows
 - linux
