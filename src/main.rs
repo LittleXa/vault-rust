@@ -201,7 +201,6 @@ fn main() -> io::Result<()> {
 
                     //*
                     if length > 0 {
-                        dbg!(&length);
                         let generate = generate_password(length);
                         println!("{generate}");
                         break; // Sort de la boucle si les mots de passe correspondent
