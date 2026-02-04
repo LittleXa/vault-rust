@@ -14,7 +14,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.0.0";
+const VERSION: &str = "1.0.1";
 
 //Pour recupere la saisie utilisateur
 use std::io;
@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 //Génération Aléatoire et Hex
-use rand::RngCore;
+use rand::{RngCore, Rng};
 use rand::rngs::OsRng;
 
 //Crypto
@@ -96,7 +96,7 @@ fn main() -> io::Result<()> {
                 vault_option = Some(vault);
             }
             Err(e) => {
-                eprintln!("❌ Erreur lors de l'ouverture du vault : {}", e);
+                eprintln!("Erreur lors de l'ouverture du vault : {}", e);
                 println!("Vous pouvez réessayer avec la commande 'open' ou créer un nouveau vault avec 'init'\n");
             }
         }
@@ -111,6 +111,8 @@ fn main() -> io::Result<()> {
         // Lit l'entrée utilisateur
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
+
+        //TODO améilorer pour pouvoir mettre deux commandes
         let command = input.trim();
 
         // Traite la commande
@@ -141,14 +143,14 @@ fn main() -> io::Result<()> {
                         eprintln!("Erreur lors de l'ajout : {}", e);
                     }
                 } else {
-                    println!("❌ Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
                 }
             },
             "list" => {
                 if let Some(ref vault) = vault_option {
                     list_entries(vault);
                 } else {
-                    println!("❌ Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
                 }
             },
             "get" => {
@@ -157,7 +159,7 @@ fn main() -> io::Result<()> {
                         eprintln!("Erreur lors de la récupération : {}", e);
                     }
                 } else {
-                    println!("❌ Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
                 }
             },
             "delete" => {
@@ -166,7 +168,7 @@ fn main() -> io::Result<()> {
                         eprintln!("Erreur lors de la suppression : {}", e);
                     }
                 } else {
-                    println!("❌ Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
                 }
             },
             "open" => {
@@ -176,12 +178,40 @@ fn main() -> io::Result<()> {
                         vault_option = Some(vault);
                     }
                     Err(e) => {
-                        eprintln!("❌ Erreur lors de l'ouverture du vault : {}", e);
+                        eprintln!("Erreur lors de l'ouverture du vault : {}", e);
                     }
                 }
             },
-            //"gen"   => generate_password(10),
-              
+            "gen"   => { 
+                
+                loop {
+                    //Demande de longueur à generer
+                    print!("Longueur (si rien, par défaut 20. Sinon Choisir entre 1 et 255) : ");
+                    io::stdout().flush()?;
+                    
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input)?;
+
+                    //Converti la chaine en int
+                    let length: u8 = if input.trim().is_empty() {
+                        20 // valeur par défaut
+                    } else {
+                        input.trim().parse().unwrap_or(20) // parse ou valeur par défaut si erreur
+                    };
+
+                    //*
+                    if length > 0 {
+                        dbg!(&length);
+                        let generate = generate_password(length);
+                        println!("{generate}");
+                        break; // Sort de la boucle si les mots de passe correspondent
+                    } else {
+                        println!("Cette longueur est invalide");
+                    }
+
+                }
+
+            },
             "help"  => display_commands(),
             ""      => continue,
             _       => {
@@ -362,6 +392,20 @@ fn add_entry(vault: &mut PasswordVault) -> io::Result<()> {
     println!("Entrée '{}' ajoutée avec succès !", alias);
 
     Ok(())
+}
+
+/**
+* Generate à partir d'un code ascii 32 -> 127
+* qu'on renvoit en chaine
+* ATTENTION avec rand version 0.9 il faut utiliser  rand::rng(); puis random_range()
+*/
+fn generate_password(length: u8) -> String {
+
+    let mut rng = rand::thread_rng();
+
+    (0..length) //itérateur plage de
+        .map(|_| rng.gen_range(32..=126) as u8 as char) //map |_| indique qu'on ne sert pas de la valeur
+        .collect() //sans point virgule pour retourner la valeur automatiquement
 }
 
 /**
