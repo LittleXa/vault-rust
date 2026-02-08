@@ -5,8 +5,6 @@
 * littleXa
 * 2026
 *
-* TODO list :
-* - personnaliser le nom du coffre et le chemin
 */
 
 //Global constants
@@ -73,7 +71,6 @@ fn main() -> io::Result<()> {
     display_logo(false);
 
     println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red().white());
-   
     println!("\n");
 
     // Vérifier si un vault existe
@@ -270,12 +267,8 @@ fn get_password() -> io::Result<String> {
 
     io::stdout().flush()?;
 
-    let password = rpassword::prompt_password("Mot de passe du coffre : ").unwrap();
-
-    //let mut password = String::new();
-    //io::stdin().read_line(&mut password)?;
-    
-    let password = password.trim().to_string();
+    let mut password = rpassword::prompt_password("Mot de passe du coffre : ").unwrap();
+    password = password.trim().to_string();
 
     if password.is_empty() {
         return Err(io::Error::new(
@@ -315,22 +308,21 @@ fn init() -> io::Result<()> {
         println!("Saisir le mot de passe maître ");
         println!("!! ATTENTION !!");
         println!("NE PERDEZ PAS CE MOT DE PASSE ! SINON VOS DONNEES SERONT PERDUES !!");
-        match io::stdin().read_line(&mut password) {
-            Ok(_n) => {},
+        password = match rpassword::prompt_password("Mot de passe : ") {
+            Ok(p) => {p},
             Err(error) => {
                 eprintln!("Erreur : {}", error);
                 continue;
             }
-        }
+        };
 
-        println!("Confirmez le mot de passe");
-        match io::stdin().read_line(&mut confirm) {
-            Ok(_n) => {},
+        confirm = match rpassword::prompt_password("Confirmez le mot de passe : ") {
+            Ok(p) => {p},
             Err(error) => {
                 eprintln!("Erreur : {}", error);
                 continue;
             }
-        }
+        };
 
         if password.trim() == confirm.trim() {
             break; // Sort de la boucle si les mots de passe correspondent
@@ -419,10 +411,10 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
     io::stdin().read_line(&mut username)?;
     let username = username.trim().to_string();
 
-    print!("Mot de passe : ");
     io::stdout().flush()?;
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
+
+    let password = rpassword::prompt_password("Mot de passe : ")
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let password = password.trim().to_string();
 
     let credential = Credential {
@@ -612,7 +604,7 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
 fn open_vault() -> io::Result<PasswordVault> {
 
     let password = get_password()?;
-
+    dbg!(&password);
     let file_path = "safe.vault";
     let mut file = File::open(file_path)?;
 
