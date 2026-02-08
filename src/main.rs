@@ -5,15 +5,12 @@
 * littleXa
 * 2026
 *
-*
 * TODO list :
-* - changer les unwrap par un message d'erreur (Result(<T, E>))
-* - rpassword pour masquer le mot de passe
 * - personnaliser le nom du coffre et le chemin
 */
 
 //Global constants
-const VERSION: &str = "1.1.0";
+const VERSION: &str = "1.2.0";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -45,6 +42,9 @@ use aes_gcm::aead::{Aead, KeyInit};
 
 //Couleurs
 use colored::Colorize;
+
+//Gestion Mot de passe
+use rpassword;
 
 /**
 * Structure de tableau de type unsigned 8bits
@@ -268,11 +268,12 @@ fn display_logo(open: bool) {
 */
 fn get_password() -> io::Result<String> {
 
-    print!("Mot de passe du coffre : ");
     io::stdout().flush()?;
-    
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
+
+    let password = rpassword::prompt_password("Mot de passe du coffre : ").unwrap();
+
+    //let mut password = String::new();
+    //io::stdin().read_line(&mut password)?;
     
     let password = password.trim().to_string();
 
@@ -282,7 +283,7 @@ fn get_password() -> io::Result<String> {
             "Le mot de passe ne peut pas être vide"
         ));
     }
-    
+
     Ok(password)
 }
 
@@ -620,9 +621,9 @@ fn open_vault() -> io::Result<PasswordVault> {
 
     // Reconstruction
     let salt: [u8; 16] = data[0..16].try_into()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Salt invalide"))?;
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Salt invalid"))?;
     let nonce_bytes: [u8; 12] = data[16..28].try_into()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Nonce invalide"))?;
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Nonce invalid"))?;
     let ciphertext = &data[28..];
 
     //Init vault_secret
