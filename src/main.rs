@@ -13,7 +13,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.0.1";
+const VERSION: &str = "1.1.0";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
