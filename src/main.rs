@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.2.1";
+const VERSION: &str = "1.2.2";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -71,7 +71,6 @@ fn main() -> io::Result<()> {
     display_logo(false);
 
     println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red().white());
-    println!("\n");
 
     // Vérifier si un vault existe
     if !vault_exists() {
@@ -239,7 +238,7 @@ fn display_logo(open: bool) {
     let info = [
         format!("{CYAN}vault@secure{RESET}"),
         format!("{GREEN}OS:{RESET}           Windows | Linux"),
-        format!("{GREEN}Version:{RESET}      1.0.1"),
+        format!("{GREEN}Version:{RESET}      {VERSION}"),
         format!("{GREEN}Shell:{RESET}        vault"),
         format!("{GREEN}Security:{RESET}     AES-256 | Zero-Trust"),
         format!("{GREEN}Storage Path:{RESET} C:\\Program Files\\Data\\"),
@@ -604,7 +603,6 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
 fn open_vault() -> io::Result<PasswordVault> {
 
     let password = get_password()?;
-    dbg!(&password);
     let file_path = "safe.vault";
     let mut file = File::open(file_path)?;
 
