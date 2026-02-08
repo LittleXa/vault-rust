@@ -10,11 +10,15 @@
 * - changer les unwrap par un message d'erreur (Result(<T, E>))
 * - rpassword pour masquer le mot de passe
 * - personnaliser le nom du coffre et le chemin
-* - intégrer une fonction de génération
 */
 
 //Global constants
 const VERSION: &str = "1.0.1";
+const PURPLE: &str = "\x1b[1;35m";
+const CYAN: &str   = "\x1b[1;36m";
+const GREEN: &str  = "\x1b[1;32m";
+const RED: &str    = "\x1b[1;31m";
+const RESET: &str  = "\x1b[0m";
 
 //Pour recupere la saisie utilisateur
 use std::io;
@@ -66,16 +70,9 @@ struct PasswordVault {
 
 fn main() -> io::Result<()> {
 
-    println!(r#"                    
-                  ▄▄       
-                  ██  ██   
-██ ██  ▀▀█▄ ██ ██ ██ ▀██▀▀ 
-██▄██ ▄█▀██ ██ ██ ██  ██   
- ▀█▀  ▀█▄██ ▀██▀█ ██  ██       
-    "#);
+    display_logo(false);
 
-    //println!("{} {} !", "it".green(), "works".blue().bold());
-    println!("{}", "Bienvenue dans Vault".red().bold());
+    println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red().white());
    
     println!("\n");
 
@@ -91,8 +88,10 @@ fn main() -> io::Result<()> {
     if vault_exists() {
         match open_vault() {
             Ok(vault) => {
+                io::stdout().flush()?;
+                display_logo(true);
                 println!("{}", "✓ Vault ouvert avec succès !\n".blue());
-                 println!("Tapez 'quit' pour quitter ou 'help'.");
+                println!("Tapez {RED}quit{RESET} pour quitter ou {PURPLE}help{RESET} pour l'aide.");
                 vault_option = Some(vault);
             }
             Err(e) => {
@@ -104,17 +103,21 @@ fn main() -> io::Result<()> {
 
     //Boucle principale
     loop {
-        // Affiche le prompt
+
         //clear
-        print!(">> ");
+        print!("\x1b[1;36m >> \x1b[0m");
         io::stdout().flush()?;
+        // Affiche le prompt
         // Lit l'entrée utilisateur
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
 
-        //TODO améilorer pour pouvoir mettre deux commandes
-        let command = input.trim();
+        //Collecte des arguments de la commande
+        let collect_args: Vec<&str> = input.split_whitespace().collect();
+        let command = collect_args[0];
+        let args = collect_args.get(1).unwrap_or(&""); // valeur par défaut
 
+        //let alias: String =
         // Traite la commande
         match command {
             "quit" => {
@@ -139,7 +142,7 @@ fn main() -> io::Result<()> {
             },
             "add" => {
                 if let Some(ref mut vault) = vault_option {
-                    if let Err(e) = add_entry(vault) {
+                    if let Err(e) = add_entry(vault, args) {
                         eprintln!("Erreur lors de l'ajout : {}", e);
                     }
                 } else {
@@ -155,7 +158,7 @@ fn main() -> io::Result<()> {
             },
             "get" => {
                 if let Some(ref vault) = vault_option {
-                    if let Err(e) = get_entry(vault) {
+                    if let Err(e) = get_entry(vault, args) {
                         eprintln!("Erreur lors de la récupération : {}", e);
                     }
                 } else {
@@ -220,6 +223,43 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/**
+* Affichage de l'écran d'accueil
+*/
+fn display_logo(open: bool) {
+
+    let logo = [
+        "██╗   ██╗ █████╗ ██╗   ██╗██╗   ████████╗",
+        "██║   ██║██╔══██╗██║   ██║██║   ╚══██╔══╝",
+        "██║   ██║███████║██║   ██║██║      ██║   ",
+        "╚██╗ ██╔╝██╔══██║██║   ██║██║      ██║   ",
+        " ╚████╔╝ ██║  ██║╚██████╔╝███████╗ ██║   ",
+        "  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═╝   ",
+    ];
+
+    let info = [
+        format!("{CYAN}vault@secure{RESET}"),
+        format!("{GREEN}OS:{RESET}           Windows | Linux"),
+        format!("{GREEN}Version:{RESET}      1.0.1"),
+        format!("{GREEN}Shell:{RESET}        vault"),
+        format!("{GREEN}Security:{RESET}     AES-256 | Zero-Trust"),
+        format!("{GREEN}Storage Path:{RESET} C:\\Program Files\\Data\\"),
+        if !open {
+            format!("{GREEN}Status:{RESET}    {RED}Locked 🔒{RESET}")
+        } else {
+            format!("{GREEN}Status:{RESET}    {CYAN}Open 🔓{RESET}")
+        }
+    ];
+
+    let width = 55; // espace réservé au logo
+
+    for i in 0..logo.len().max(info.len()) {
+        let left = logo.get(i).unwrap_or(&"");
+        let right = info.get(i).map(|s| s.as_str()).unwrap_or("");
+        println!("{CYAN}{left:<width$}{RESET}  {right}");
+    }
 }
 
 /**
@@ -356,15 +396,21 @@ fn derive_key(password: &str, salt: &[u8; 16]) -> io::Result<[u8; 32]> {
 /**
 * Ajout d'une entrée dans le vault
 */
-fn add_entry(vault: &mut PasswordVault) -> io::Result<()> {
+fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
 
-    println!("=== Ajout d'une nouvelle entrée ===");
-    
-    print!("Alias (ex: github, gmail) : ");
-    io::stdout().flush()?;
+    println!("{GREEN}==={RESET} Ajout d'une nouvelle entrée {GREEN}==={RESET}");
     let mut alias = String::new();
-    io::stdin().read_line(&mut alias)?;
-    let alias = alias.trim().to_string();
+
+    if args.len() > 0 {
+        alias = args.parse().unwrap();
+        println!("Alias : {}", &args);
+    } else {
+        print!("Alias (ex: github, gmail) : ");
+        io::stdout().flush()?;
+        io::stdin().read_line(&mut alias)?;
+        alias = alias.trim().to_string();
+    }
+
 
     print!("Nom d'utilisateur : ");
     io::stdout().flush()?;
@@ -415,8 +461,7 @@ fn list_entries(vault: &PasswordVault) {
         println!("Le vault est vide.");
         return;
     }
-
-    println!("\n=== Entrées du vault ===");
+    println!("{GREEN}==={RESET} Entrées du vault {GREEN}==={RESET}");
     for (alias, cred) in &vault.credentials {
         println!("• {} - {}", alias, cred.user);
     }
@@ -426,21 +471,27 @@ fn list_entries(vault: &PasswordVault) {
 /**
 * Récupère une entrée du vault par alias
 */
-fn get_entry(vault: &PasswordVault) -> io::Result<()> {
+fn get_entry(vault: &PasswordVault, args: &str) -> io::Result<()> {
     if vault.credentials.is_empty() {
         println!("Le vault est vide.");
         return Ok(());
     }
 
-    print!("Alias à rechercher : ");
-    io::stdout().flush()?;
     let mut alias = String::new();
-    io::stdin().read_line(&mut alias)?;
-    let alias = alias.trim();
 
-    match vault.credentials.get(alias) {
+    if args.len() > 0 {
+        alias = args.parse().unwrap();
+    } else {
+        print!("Alias à rechercher : ");
+        io::stdout().flush()?;
+
+        io::stdin().read_line(&mut alias)?;
+        alias = alias.trim().to_string();
+    }
+
+    match vault.credentials.get(&alias) {
         Some(cred) => {
-            println!("\n=== Entrée trouvée ===");
+            println!("{GREEN}==={RESET} Entrée trouvée {GREEN}==={RESET}");
             println!("Alias      : {}", alias);
             println!("Utilisateur: {}", cred.user);
             println!("Mot de passe: {}", cred.password);
@@ -467,6 +518,7 @@ fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
         return Ok(());
     }
 
+    list_entries(&vault);
     print!("Alias à supprimer : ");
     io::stdout().flush()?;
     let mut alias = String::new();
@@ -503,7 +555,7 @@ fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
         // Sauvegarder le vault
         save_vault(vault)?;
         
-        println!("✓ Entrée '{}' supprimée avec succès !", alias);
+        println!("{GREEN}✓ Entrée '{}' supprimée avec succès !{RESET}", alias);
     } else {
         println!("Suppression annulée.");
     }
@@ -621,33 +673,33 @@ fn display_commands() {
         r#"
         Commandes disponibles :
         
-        init
+        {GREEN}init{RESET}
             Initialiser un nouveau coffre
 
-        add
+        {GREEN}add [alias]{RESET}
             Ajoute une nouvelle entrée au vault
 
-        list
+        {GREEN}list{RESET}
             Liste toutes les entrées
 
-        get
+        {GREEN}get [alias]{RESET}
             Récupère et affiche une entrée par alias
             Exemple : get github
 
-        delete
+        {GREEN}delete{RESET}
             Supprime une entrée du vault par alias
             Exemple : delete github
 
-        open
+        {GREEN}open{RESET}
             Ouvre et vérifie le vault
 
-        version
+        {GREEN}version{RESET}
             Affiche la version
 
-        help
+        {GREEN}help{RESET}
             Affiche cette aide
 
-        quit
+        {GREEN}quit{RESET}
             Sortir
 
         Note : Les données sont chiffrées avec AES-256-GCM
