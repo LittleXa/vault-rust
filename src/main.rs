@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.2.2";
+const VERSION: &str = "1.2.3";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -50,8 +50,8 @@ use rpassword;
 */
 #[derive(Debug, Clone)]
 struct Vault {
-    salt: [u8; 16], //tableau de 16 octets en u8
-    nonce_bytes: [u8; 12], //tableau de 12 octets en u8
+    salt: [u8; 16], //tableau de 16 bytes en u8
+    nonce_bytes: [u8; 12], //tableau de 12 bytes en u8
     cyphertext: Vec<u8> 
 }
 
@@ -67,8 +67,6 @@ struct PasswordVault {
 }
 
 fn main() -> io::Result<()> {
-
-    display_logo(false);
 
     println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red().white());
 
@@ -86,7 +84,7 @@ fn main() -> io::Result<()> {
             Ok(vault) => {
                 io::stdout().flush()?;
                 display_logo(true);
-                println!("{}", "✓ Vault ouvert avec succès !\n".blue());
+                println!("{GREEN}✓ Vault ouvert avec succès !{RESET}\n");
                 println!("Tapez {RED}quit{RESET} pour quitter ou {PURPLE}help{RESET} pour l'aide.");
                 vault_option = Some(vault);
             }
@@ -173,7 +171,8 @@ fn main() -> io::Result<()> {
             "open" => {
                 match open_vault() {
                     Ok(vault) => {
-                        println!("✓ Vault ouvert avec succès !");
+                        display_logo(true);
+                        println!("{GREEN}✓ Vault ouvert avec succès !{RESET}");
                         vault_option = Some(vault);
                     }
                     Err(e) => {
@@ -266,7 +265,8 @@ fn get_password() -> io::Result<String> {
 
     io::stdout().flush()?;
 
-    let mut password = rpassword::prompt_password("Mot de passe du coffre : ").unwrap();
+    let mut password = rpassword::prompt_password("Mot de passe du coffre : ")
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     password = password.trim().to_string();
 
     if password.is_empty() {
@@ -403,30 +403,43 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
         alias = alias.trim().to_string();
     }
 
+    //Test si l'entrée existe déjà sinon le creer
+    match vault.credentials.get(&alias) {
+        Some(cred) => {
+            println!("{RED}=== Entrée déjà existante ==={RESET}");
+            println!("Alias      : {}", &alias);
+            println!("Utilisateur: {}", cred.user);
+            println!("Mot de passe: {}", cred.password);
+            println!();
+        }
+        None => {
+            print!("Nom d'utilisateur : ");
+            io::stdout().flush()?;
+            let mut username = String::new();
+            io::stdin().read_line(&mut username)?;
+            let username = username.trim().to_string();
 
-    print!("Nom d'utilisateur : ");
-    io::stdout().flush()?;
-    let mut username = String::new();
-    io::stdin().read_line(&mut username)?;
-    let username = username.trim().to_string();
+            io::stdout().flush()?;
 
-    io::stdout().flush()?;
+            let password = rpassword::prompt_password("Mot de passe : ")
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+            let password = password.trim().to_string();
 
-    let password = rpassword::prompt_password("Mot de passe : ")
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-    let password = password.trim().to_string();
+            let credential = Credential {
+                user: username,
+                password,
+            };
 
-    let credential = Credential {
-        user: username,
-        password: password,
-    };
+            vault.credentials.insert(alias.clone(), credential);
 
-    vault.credentials.insert(alias.clone(), credential);
+            // Sauvegarder le vault
+            save_vault(vault)?;
 
-    // Sauvegarder le vault
-    save_vault(vault)?;
+            println!("Entrée '{}' ajoutée avec succès !", alias);
+        }
+    }
 
-    println!("Entrée '{}' ajoutée avec succès !", alias);
+
 
     Ok(())
 }
@@ -481,6 +494,7 @@ fn get_entry(vault: &PasswordVault, args: &str) -> io::Result<()> {
         alias = alias.trim().to_string();
     }
 
+    //Demander le mot de passe
     match vault.credentials.get(&alias) {
         Some(cred) => {
             println!("{GREEN}==={RESET} Entrée trouvée {GREEN}==={RESET}");
@@ -676,6 +690,9 @@ fn display_commands() {
         {GREEN}get [alias]{RESET}
             Récupère et affiche une entrée par alias
             Exemple : get github
+
+        {GREEN}gen{RESET}
+            Génère un mot de passe avec longueur
 
         {GREEN}delete{RESET}
             Supprime une entrée du vault par alias
