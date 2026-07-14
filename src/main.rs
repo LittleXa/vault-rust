@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.2.3";
+const VERSION: &str = "1.3.0";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -20,7 +20,7 @@ use std::io;
 
 //Ecriture de fichier Texte
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 
 //JSON
@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 //Utilisation d'un hashmap
 use std::collections::HashMap;
 
-//Génération Aléatoire et Hex
+//Génération Aléatoire
 use rand::{RngCore, Rng};
 use rand::rngs::OsRng;
 
@@ -41,58 +41,63 @@ use aes_gcm::aead::{Aead, KeyInit};
 //Couleurs
 use colored::Colorize;
 
-//Gestion Mot de passe
-use rpassword;
+//Effacement mémoire des secrets
+use zeroize::Zeroizing;
 
 /**
 * Structure de tableau de type unsigned 8bits
 * Le derive permet d'implementer les traits debug et clone
 */
-#[derive(Debug, Clone)]
+// Pas de derive(Debug) sur les structures sensibles : éviter qu'un {:?}
+// accidentel ne divulgue sel, nonce ou identifiants en clair.
+#[derive(Clone)]
 struct Vault {
     salt: [u8; 16], //tableau de 16 bytes en u8
     nonce_bytes: [u8; 12], //tableau de 12 bytes en u8
-    cyphertext: Vec<u8> 
+    cyphertext: Vec<u8>
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Credential {
     user: String,
     password: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct PasswordVault {
     credentials: HashMap<String, Credential>,
 }
 
 fn main() -> io::Result<()> {
 
-    println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red().white());
+    println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red());
 
-    // Vérifier si un vault existe
-    if !vault_exists() {
-        println!("{}", "Aucun vault trouvé. Utilisez 'init' pour en créer un.".blue());
-        println!("\n");
-    }
+    // Chemin du vault ouvert par défaut au démarrage
+    let default_path = PathBuf::from("safe.vault");
 
-    // Charger le vault en mémoire si il existe
+    // État : le vault déchiffré en mémoire + le chemin du fichier ouvert
     let mut vault_option: Option<PasswordVault> = None;
-    
-    if vault_exists() {
-        match open_vault() {
+    let mut current_path: Option<PathBuf> = None;
+
+    // Au démarrage, on ouvre automatiquement le vault par défaut s'il existe
+    if vault_exists(&default_path) {
+        match open_vault(&default_path) {
             Ok(vault) => {
                 io::stdout().flush()?;
-                display_logo(true);
+                display_logo(true, &default_path);
                 println!("{GREEN}✓ Vault ouvert avec succès !{RESET}\n");
                 println!("Tapez {RED}quit{RESET} pour quitter ou {PURPLE}help{RESET} pour l'aide.");
                 vault_option = Some(vault);
+                current_path = Some(default_path.clone());
             }
             Err(e) => {
                 eprintln!("Erreur lors de l'ouverture du vault : {}", e);
-                println!("Vous pouvez réessayer avec la commande 'open' ou créer un nouveau vault avec 'init'\n");
+                println!("Vous pouvez réessayer avec 'open' ou créer un nouveau vault avec 'init'\n");
             }
         }
+    } else {
+        println!("{}", "Aucun vault ouvert. 'init' pour en créer un, 'open' pour en choisir un.".blue());
+        println!();
     }
 
     //Boucle principale
@@ -112,7 +117,8 @@ fn main() -> io::Result<()> {
             Some(c) => *c,
             None => continue, // ligne vide → on redemande une commande
         };
-        let args = collect_args.get(1).unwrap_or(&"");
+        // L'argument est tout ce qui suit la commande (autorise les alias multi-mots)
+        let args: String = collect_args.get(1..).map(|rest| rest.join(" ")).unwrap_or_default();
 
         //let alias: String =
         // Traite la commande
@@ -123,27 +129,34 @@ fn main() -> io::Result<()> {
             },
             "version" => println!("Version {}", VERSION),
             "init" => {
-                if let Err(e) = init() {
-                    eprintln!("Erreur lors de l'initialisation : {}", e);
-                } else {
-                    // Charger le nouveau vault
-                    match open_vault() {
-                        Ok(vault) => {
-                            vault_option = Some(vault);
-                        }
-                        Err(e) => {
-                            eprintln!("Erreur lors de l'ouverture du vault : {}", e);
+                match pick_new_vault() {
+                    Some(path) => {
+                        if let Err(e) = init(&path) {
+                            eprintln!("Erreur lors de l'initialisation : {}", e);
+                        } else {
+                            // Charger le nouveau vault
+                            match open_vault(&path) {
+                                Ok(vault) => {
+                                    vault_option = Some(vault);
+                                    current_path = Some(path);
+                                }
+                                Err(e) => {
+                                    eprintln!("Erreur lors de l'ouverture du vault : {}", e);
+                                }
+                            }
                         }
                     }
+                    None => println!("Création annulée."),
                 }
             },
             "add" => {
-                if let Some(ref mut vault) = vault_option {
-                    if let Err(e) = add_entry(vault, args) {
-                        eprintln!("Erreur lors de l'ajout : {}", e);
+                match (vault_option.as_mut(), current_path.as_ref()) {
+                    (Some(vault), Some(path)) => {
+                        if let Err(e) = add_entry(vault, &args, path) {
+                            eprintln!("Erreur lors de l'ajout : {}", e);
+                        }
                     }
-                } else {
-                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    _ => println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un."),
                 }
             },
             "list" => {
@@ -155,7 +168,7 @@ fn main() -> io::Result<()> {
             },
             "get" => {
                 if let Some(ref vault) = vault_option {
-                    if let Err(e) = get_entry(vault, args) {
+                    if let Err(e) = get_entry(vault, &args) {
                         eprintln!("Erreur lors de la récupération : {}", e);
                     }
                 } else {
@@ -163,24 +176,29 @@ fn main() -> io::Result<()> {
                 }
             },
             "delete" => {
-                if let Some(ref mut vault) = vault_option {
-                    if let Err(e) = delete_entry(vault) {
-                        eprintln!("Erreur lors de la suppression : {}", e);
+                match (vault_option.as_mut(), current_path.as_ref()) {
+                    (Some(vault), Some(path)) => {
+                        if let Err(e) = delete_entry(vault, path) {
+                            eprintln!("Erreur lors de la suppression : {}", e);
+                        }
                     }
-                } else {
-                    println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un.");
+                    _ => println!("Aucun vault ouvert. Utilisez 'init' pour créer un vault ou 'open' pour en ouvrir un."),
                 }
             },
             "open" => {
-                match open_vault() {
-                    Ok(vault) => {
-                        display_logo(true);
-                        println!("{GREEN}✓ Vault ouvert avec succès !{RESET}");
-                        vault_option = Some(vault);
-                    }
-                    Err(e) => {
-                        eprintln!("Erreur lors de l'ouverture du vault : {}", e);
-                    }
+                match pick_existing_vault() {
+                    Some(path) => match open_vault(&path) {
+                        Ok(vault) => {
+                            display_logo(true, &path);
+                            println!("{GREEN}✓ Vault ouvert avec succès !{RESET}");
+                            vault_option = Some(vault);
+                            current_path = Some(path);
+                        }
+                        Err(e) => {
+                            eprintln!("Erreur lors de l'ouverture du vault : {}", e);
+                        }
+                    },
+                    None => println!("Ouverture annulée."),
                 }
             },
             "gen"   => { 
@@ -226,7 +244,7 @@ fn main() -> io::Result<()> {
 /**
 * Affichage de l'écran d'accueil
 */
-fn display_logo(open: bool) {
+fn display_logo(open: bool, path: &Path) {
 
     let logo = [
         "██╗   ██╗ █████╗ ██╗   ██╗██╗   ████████╗",
@@ -243,7 +261,7 @@ fn display_logo(open: bool) {
         format!("{GREEN}Version:{RESET}      {VERSION}"),
         format!("{GREEN}Shell:{RESET}        vault"),
         format!("{GREEN}Security:{RESET}     AES-256 | Zero-Trust"),
-        format!("{GREEN}Storage Path:{RESET} C:\\Program Files\\Data\\"),
+        format!("{GREEN}Storage Path:{RESET} {}", path.display()),
         if !open {
             format!("{GREEN}Status:{RESET}    {RED}Locked 🔒{RESET}")
         } else {
@@ -264,13 +282,13 @@ fn display_logo(open: bool) {
 * Demande du mot de passe 
 * Renvoi un type String
 */
-fn get_password() -> io::Result<String> {
+fn get_password() -> io::Result<Zeroizing<String>> {
 
     io::stdout().flush()?;
 
-    let mut password = rpassword::prompt_password("Mot de passe du coffre : ")
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    password = password.trim().to_string();
+    let password = rpassword::prompt_password("Mot de passe du coffre : ")
+        .map_err(io::Error::other)?;
+    let password = Zeroizing::new(password.trim().to_string());
 
     if password.is_empty() {
         return Err(io::Error::new(
@@ -285,53 +303,73 @@ fn get_password() -> io::Result<String> {
 /**
 * Teste si le fichier existe déjà
 */
-fn vault_exists() -> bool {
-    Path::new("safe.vault").exists()
+fn vault_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+/**
+* Dialogue natif pour choisir un fichier vault existant à ouvrir.
+* Renvoie None si l'utilisateur annule.
+*/
+fn pick_existing_vault() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("Ouvrir un vault")
+        .add_filter("Vault", &["vault"])
+        .pick_file()
+}
+
+/**
+* Dialogue natif pour choisir où créer un nouveau vault.
+* Renvoie None si l'utilisateur annule.
+*/
+fn pick_new_vault() -> Option<PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("Créer un vault")
+        .add_filter("Vault", &["vault"])
+        .set_file_name("safe.vault")
+        .save_file()
 }
 
 /*
 * Initialisation du coffre
 *
 */
-fn init() -> io::Result<()> {
+fn init(path: &Path) -> io::Result<()> {
 
     //Test si un fichier existe déjà
-    if vault_exists() {
+    if vault_exists(path) {
         println!("Le vault existe déjà !");
         return Ok(());
     }
 
-    let mut password = String::new();
-    let mut confirm = String::new();
+    println!("Saisir le mot de passe maître ");
+    println!("!! ATTENTION !!");
+    println!("NE PERDEZ PAS CE MOT DE PASSE ! SINON VOS DONNEES SERONT PERDUES !!");
 
-    loop {
-        password.clear();
-        confirm.clear();
-        println!("Saisir le mot de passe maître ");
-        println!("!! ATTENTION !!");
-        println!("NE PERDEZ PAS CE MOT DE PASSE ! SINON VOS DONNEES SERONT PERDUES !!");
-        password = match rpassword::prompt_password("Mot de passe : ") {
-            Ok(p) => {p},
+    // Boucle jusqu'à ce que les deux saisies correspondent.
+    // Les mots de passe sont enveloppés dans Zeroizing → effacés de la RAM au Drop.
+    let password: Zeroizing<String> = loop {
+        let p = match rpassword::prompt_password("Mot de passe : ") {
+            Ok(p) => Zeroizing::new(p),
             Err(error) => {
                 eprintln!("Erreur : {}", error);
                 continue;
             }
         };
 
-        confirm = match rpassword::prompt_password("Confirmez le mot de passe : ") {
-            Ok(p) => {p},
+        let confirm = match rpassword::prompt_password("Confirmez le mot de passe : ") {
+            Ok(c) => Zeroizing::new(c),
             Err(error) => {
                 eprintln!("Erreur : {}", error);
                 continue;
             }
         };
 
-        if password.trim() == confirm.trim() {
-            break; // Sort de la boucle si les mots de passe correspondent
-        } else {
-            println!("Les mots de passe ne correspondent pas. Veuillez réessayer.");
+        if p.trim() == confirm.trim() {
+            break p; // Sort de la boucle si les mots de passe correspondent
         }
-    }
+        println!("Les mots de passe ne correspondent pas. Veuillez réessayer.");
+    };
 
     // Créer un vault vide
     let empty_vault = PasswordVault {
@@ -347,13 +385,13 @@ fn init() -> io::Result<()> {
     OsRng.fill_bytes(&mut salt);
 
     //Dériver la clé avec Argon2
-    let mut key_bytes = [0u8; 32];
+    let mut key_bytes = Zeroizing::new([0u8; 32]);
     Argon2::default()
-        .hash_password_into(password.trim().as_bytes(), &salt, &mut key_bytes)
+        .hash_password_into(password.trim().as_bytes(), &salt, key_bytes.as_mut_slice())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     
     //Clé de chiffrement au format AES 256
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes.as_slice());
     let cipher = Aes256Gcm::new(key);
 
     // Générer un nonce
@@ -365,9 +403,9 @@ fn init() -> io::Result<()> {
     let ciphertext = cipher.encrypt(nonce, json_data.as_bytes())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    let mut fichier = File::create("safe.vault")?;
+    let mut fichier = File::create(path)?;
 
-    //Ecriture dans le fichier vault 
+    //Ecriture dans le fichier vault
     fichier.write_all(&salt)?;
     fichier.write_all(&nonce_bytes)?;
     fichier.write_all(&ciphertext)?;
@@ -378,27 +416,27 @@ fn init() -> io::Result<()> {
 }
 
 // Dérivation de clé
-fn derive_key(password: &str, salt: &[u8; 16]) -> io::Result<[u8; 32]> {
-    let mut key_bytes = [0u8; 32];
-    
+fn derive_key(password: &str, salt: &[u8; 16]) -> io::Result<Zeroizing<[u8; 32]>> {
+    let mut key_bytes = Zeroizing::new([0u8; 32]);
+
     Argon2::default()
-        .hash_password_into(password.as_bytes(), salt, &mut key_bytes)
+        .hash_password_into(password.as_bytes(), salt, key_bytes.as_mut_slice())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    
+
     Ok(key_bytes)
 }
 
 /**
 * Ajout d'une entrée dans le vault
 */
-fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
+fn add_entry(vault: &mut PasswordVault, args: &str, path: &Path) -> io::Result<()> {
 
     println!("{GREEN}==={RESET} Ajout d'une nouvelle entrée {GREEN}==={RESET}");
     let mut alias = String::new();
 
-    if args.len() > 0 {
+    if !args.is_empty() {
         alias = args.parse().unwrap();
-        println!("Alias : {}", &args);
+        println!("Alias : {}", args);
     } else {
         print!("Alias (ex: github, gmail) : ");
         io::stdout().flush()?;
@@ -410,9 +448,9 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
     match vault.credentials.get(&alias) {
         Some(cred) => {
             println!("{RED}=== Entrée déjà existante ==={RESET}");
-            println!("Alias      : {}", &alias);
+            println!("Alias      : {}", alias);
             println!("Utilisateur: {}", cred.user);
-            println!("Mot de passe: {}", cred.password);
+            println!("(Utilisez '{GREEN}get {alias}{RESET}' pour afficher le mot de passe.)");
             println!();
         }
         None => {
@@ -437,7 +475,7 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
 
             // Sauvegarder le vault ; si la sauvegarde échoue (ex. mauvais mot de
             // passe), on annule l'ajout en mémoire pour rester cohérent avec le disque.
-            if let Err(e) = save_vault(vault) {
+            if let Err(e) = save_vault(vault, path) {
                 vault.credentials.remove(&alias);
                 return Err(e);
             }
@@ -452,8 +490,8 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
 }
 
 /**
-* Generate à partir d'un code ascii 32 -> 127
-* qu'on renvoit en chaine
+* Generate à partir des codes ascii imprimables 33 -> 126 (l'espace 32 est exclu
+* pour éviter un caractère invisible dans le mot de passe).
 * ATTENTION avec rand version 0.9 il faut utiliser  rand::rng(); puis random_range()
 */
 fn generate_password(length: u8) -> String {
@@ -461,7 +499,7 @@ fn generate_password(length: u8) -> String {
     let mut rng = rand::thread_rng();
 
     (0..length) //itérateur plage de
-        .map(|_| rng.gen_range(32..=126) as u8 as char) //map |_| indique qu'on ne sert pas de la valeur
+        .map(|_| rng.gen_range(33..=126) as u8 as char) //map |_| indique qu'on ne sert pas de la valeur
         .collect() //sans point virgule pour retourner la valeur automatiquement
 }
 
@@ -491,7 +529,7 @@ fn get_entry(vault: &PasswordVault, args: &str) -> io::Result<()> {
 
     let mut alias = String::new();
 
-    if args.len() > 0 {
+    if !args.is_empty() {
         alias = args.parse().unwrap();
     } else {
         print!("Alias à rechercher : ");
@@ -525,13 +563,13 @@ fn get_entry(vault: &PasswordVault, args: &str) -> io::Result<()> {
 /**
 * Supprime une entrée du vault par alias
 */
-fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
+fn delete_entry(vault: &mut PasswordVault, path: &Path) -> io::Result<()> {
     if vault.credentials.is_empty() {
         println!("Le vault est vide.");
         return Ok(());
     }
 
-    list_entries(&vault);
+    list_entries(vault);
     print!("Alias à supprimer : ");
     io::stdout().flush()?;
     let mut alias = String::new();
@@ -565,11 +603,11 @@ fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
     if confirmation == "oui" || confirmation == "o" || confirmation == "yes" || confirmation == "y" {
         // On retire l'entrée puis on sauvegarde ; si la sauvegarde échoue,
         // on la remet en mémoire pour rester cohérent avec le disque.
-        if let Some(removed) = vault.credentials.remove(alias) {
-            if let Err(e) = save_vault(vault) {
-                vault.credentials.insert(alias.to_string(), removed);
-                return Err(e);
-            }
+        if let Some(removed) = vault.credentials.remove(alias)
+            && let Err(e) = save_vault(vault, path)
+        {
+            vault.credentials.insert(alias.to_string(), removed);
+            return Err(e);
         }
 
         println!("{GREEN}✓ Entrée '{}' supprimée avec succès !{RESET}", alias);
@@ -583,15 +621,15 @@ fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
 /**
 * Sauvegarde le vault
 */
-fn save_vault(vault: &PasswordVault) -> io::Result<()> {
+fn save_vault(vault: &PasswordVault, path: &Path) -> io::Result<()> {
     let password = get_password()?;
 
-    // Sérialiser en JSON
-    let json_data = serde_json::to_string(&vault)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    // Sérialiser en JSON (contient les secrets en clair → effacé au Drop)
+    let json_data = Zeroizing::new(serde_json::to_string(&vault)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
 
     // Lire le contenu existant (sel + nonce + ciphertext)
-    let mut file = File::open("safe.vault")?;
+    let mut file = File::open(path)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
 
@@ -611,7 +649,7 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
 
     // Dériver la clé à partir du mot de passe saisi
     let key_bytes = derive_key(&password, &salt)?;
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes.as_slice());
     let cipher = Aes256Gcm::new(key);
 
     // VÉRIFICATION : on déchiffre l'ancien contenu avec cette clé.
@@ -635,7 +673,7 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     // Écrire
-    let mut file = File::create("safe.vault")?;
+    let mut file = File::create(path)?;
     file.write_all(&salt)?;
     file.write_all(&nonce_bytes)?;
     file.write_all(&ciphertext)?;
@@ -647,14 +685,21 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
 * Ouverture du vault et init du struct
 * 
 */
-fn open_vault() -> io::Result<PasswordVault> {
+fn open_vault(path: &Path) -> io::Result<PasswordVault> {
 
     let password = get_password()?;
-    let file_path = "safe.vault";
-    let mut file = File::open(file_path)?;
+    let mut file = File::open(path)?;
 
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
+
+    // Garde : fichier corrompu ou incomplet (16 octets de sel + 12 de nonce = 28 minimum)
+    if data.len() < 28 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Fichier vault corrompu ou incomplet",
+        ));
+    }
 
     // Reconstruction
     let salt: [u8; 16] = data[0..16].try_into()
@@ -683,20 +728,20 @@ fn open_vault() -> io::Result<PasswordVault> {
 fn decrypt_vault(vault: &Vault, password: &str) -> io::Result<PasswordVault> {
 
     // Dériver la clé
-    let key_bytes = derive_key(&password, &vault.salt)?;
+    let key_bytes = derive_key(password, &vault.salt)?;
 
     // Génération du chiffrement
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes.as_slice());
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(&vault.nonce_bytes);
 
-    // Déchiffrer
-    let plaintext = cipher
+    // Déchiffrer (le clair contient tous les secrets → effacé au Drop)
+    let plaintext = Zeroizing::new(cipher
         .decrypt(nonce, vault.cyphertext.as_ref())
-        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "Mot de passe incorrect ou données corrompues"))?;
-    
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "Mot de passe incorrect ou données corrompues"))?);
+
     // Désérialiser le JSON
-    let password_vault: PasswordVault = serde_json::from_slice(&plaintext)
+    let password_vault: PasswordVault = serde_json::from_slice(plaintext.as_slice())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok(password_vault)
@@ -712,7 +757,7 @@ fn display_commands() {
         Commandes disponibles :
         
         {GREEN}init{RESET}
-            Initialiser un nouveau coffre
+            Initialiser un nouveau coffre (choix du fichier via un dialogue)
 
         {GREEN}add [alias]{RESET}
             Ajoute une nouvelle entrée au vault
@@ -732,7 +777,7 @@ fn display_commands() {
             Exemple : delete github
 
         {GREEN}open{RESET}
-            Ouvre et vérifie le vault
+            Choisit et ouvre un vault via un dialogue de sélection de fichier
 
         {GREEN}version{RESET}
             Affiche la version
