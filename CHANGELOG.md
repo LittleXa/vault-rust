@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.4.0] - 2026-07-14
+
+### Added
+
+- Mode « une commande » : `vault get github`, `vault list`, etc. exécutent une action puis quittent (idéal SSH/script)
+- Option `-f`/`--file <chemin>` et variable d'environnement `VAULT_FILE` pour cibler un vault précis
+- Repli clavier pour `open`/`init` quand aucun écran n'est disponible (SSH sans serveur X)
+- `delete <alias>` accepte l'alias en argument ; alias `exit` et sortie par Ctrl-D
+
+### Changed
+
+- Le sélecteur de fichier graphique n'est utilisé que si un écran est détecté (DISPLAY/WAYLAND_DISPLAY)
+
 ## [1.3.0] - 2026-07-14
 
 ### Added

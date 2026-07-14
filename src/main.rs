@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.3.0";
+const VERSION: &str = "1.4.0";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -71,11 +71,121 @@ struct PasswordVault {
 }
 
 fn main() -> io::Result<()> {
+    // Arguments de la ligne de commande (sans le nom du programme)
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+
+    // Extraire l'option -f/--file <chemin>, où qu'elle soit sur la ligne
+    let mut file_flag: Option<String> = None;
+    let mut rest: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "-f" | "--file" => {
+                file_flag = argv.get(i + 1).cloned();
+                i += 2;
+            }
+            _ => {
+                rest.push(argv[i].clone());
+                i += 1;
+            }
+        }
+    }
+
+    // Chemin du vault : -f/--file, sinon $VAULT_FILE, sinon safe.vault
+    let path = resolve_vault_path(file_flag);
+
+    if rest.is_empty() {
+        // Aucune commande → shell interactif
+        run_interactive(path)
+    } else {
+        // Une commande fournie → mode « une commande » puis sortie (idéal SSH/script)
+        let command = rest[0].as_str();
+        let args = rest[1..].join(" ");
+        run_oneshot(&path, command, &args)
+    }
+}
+
+/// Résout le chemin du vault : -f/--file, sinon $VAULT_FILE, sinon safe.vault
+fn resolve_vault_path(flag: Option<String>) -> PathBuf {
+    if let Some(p) = flag {
+        PathBuf::from(p)
+    } else if let Ok(p) = std::env::var("VAULT_FILE") {
+        PathBuf::from(p)
+    } else {
+        PathBuf::from("safe.vault")
+    }
+}
+
+/// Message d'aide de la ligne de commande.
+fn print_usage() {
+    println!("Usage :");
+    println!("  vault                       Ouvre le shell interactif");
+    println!("  vault <commande> [args]     Exécute une seule commande puis quitte");
+    println!("  vault -f <fichier> ...      Cible un fichier précis (sinon $VAULT_FILE, sinon safe.vault)");
+    println!();
+    println!("Commandes : get <alias> · list · add <alias> · delete <alias> · gen [longueur] · init · version · help");
+}
+
+/// Mode « une commande » : exécute une action unique puis rend la main.
+/// Exemple : `vault get github` demande le mot de passe, affiche l'entrée et sort.
+fn run_oneshot(path: &Path, command: &str, args: &str) -> io::Result<()> {
+    match command {
+        "version" => println!("Version {}", VERSION),
+        "help" => display_commands(),
+        "gen" => {
+            let length: u8 = match args.trim() {
+                "" => 20,
+                s => s.parse().unwrap_or(20),
+            };
+            let length = if length == 0 { 20 } else { length };
+            println!("{}", generate_password(length));
+        }
+        "init" => {
+            if let Err(e) = init(path) {
+                eprintln!("Erreur lors de l'initialisation : {}", e);
+            }
+        }
+        "get" | "list" | "add" | "delete" => {
+            if !vault_exists(path) {
+                eprintln!(
+                    "Aucun vault à « {} ». Créez-en un avec : vault init",
+                    path.display()
+                );
+                return Ok(());
+            }
+            let mut vault = match open_vault(path) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Erreur lors de l'ouverture du vault : {}", e);
+                    return Ok(());
+                }
+            };
+            let result = match command {
+                "get" => get_entry(&vault, args),
+                "list" => {
+                    list_entries(&vault);
+                    Ok(())
+                }
+                "add" => add_entry(&mut vault, args, path),
+                "delete" => delete_entry(&mut vault, args, path),
+                _ => unreachable!(),
+            };
+            if let Err(e) = result {
+                eprintln!("Erreur : {}", e);
+            }
+        }
+        other => {
+            eprintln!("Commande inconnue : {}", other);
+            print_usage();
+        }
+    }
+    Ok(())
+}
+
+/// Shell interactif : ouvre le vault par défaut s'il existe puis boucle sur les commandes.
+fn run_interactive(default_path: PathBuf) -> io::Result<()> {
 
     println!("{}", ">> Bienvenue dans Vault ! A Secure Vault in shell".red());
-
-    // Chemin du vault ouvert par défaut au démarrage
-    let default_path = PathBuf::from("safe.vault");
 
     // État : le vault déchiffré en mémoire + le chemin du fichier ouvert
     let mut vault_option: Option<PasswordVault> = None;
@@ -111,7 +221,13 @@ fn main() -> io::Result<()> {
         // Affiche le prompt
         // Lit l'entrée utilisateur
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
+        let n = io::stdin().read_line(&mut input)?;
+
+        // read_line renvoie 0 octet sur EOF (Ctrl-D) → on quitte proprement
+        if n == 0 {
+            println!("\nAu revoir !");
+            break;
+        }
 
         //Collecte des arguments de la commande
         let collect_args: Vec<&str> = input.split_whitespace().collect();
@@ -122,10 +238,9 @@ fn main() -> io::Result<()> {
         // L'argument est tout ce qui suit la commande (autorise les alias multi-mots)
         let args: String = collect_args.get(1..).map(|rest| rest.join(" ")).unwrap_or_default();
 
-        //let alias: String =
         // Traite la commande
         match command {
-            "quit" => {
+            "quit" | "exit" => {
                 println!("Au revoir !");
                 break;
             },
@@ -180,7 +295,7 @@ fn main() -> io::Result<()> {
             "delete" => {
                 match (vault_option.as_mut(), current_path.as_ref()) {
                     (Some(vault), Some(path)) => {
-                        if let Err(e) = delete_entry(vault, path) {
+                        if let Err(e) = delete_entry(vault, &args, path) {
                             eprintln!("Erreur lors de la suppression : {}", e);
                         }
                     }
@@ -310,26 +425,59 @@ fn vault_exists(path: &Path) -> bool {
 }
 
 /**
-* Dialogue natif pour choisir un fichier vault existant à ouvrir.
-* Renvoie None si l'utilisateur annule.
+* Vrai si une session graphique est disponible (X11 ou Wayland).
+* Sinon (ex. SSH sans écran), on bascule sur une saisie clavier du chemin.
 */
-fn pick_existing_vault() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .set_title("Ouvrir un vault")
-        .add_filter("Vault", &["vault"])
-        .pick_file()
+fn has_display() -> bool {
+    std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 /**
-* Dialogue natif pour choisir où créer un nouveau vault.
-* Renvoie None si l'utilisateur annule.
+* Saisie d'un chemin au clavier (repli quand aucun écran n'est disponible).
+* Renvoie None si l'entrée est vide.
+*/
+fn prompt_path(label: &str) -> Option<PathBuf> {
+    print!("{}", label);
+    io::stdout().flush().ok()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok()?;
+    let input = input.trim();
+    if input.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(input))
+    }
+}
+
+/**
+* Choisit un fichier vault existant à ouvrir : dialogue natif si écran,
+* sinon saisie clavier du chemin. Renvoie None si annulé.
+*/
+fn pick_existing_vault() -> Option<PathBuf> {
+    if has_display() {
+        rfd::FileDialog::new()
+            .set_title("Ouvrir un vault")
+            .add_filter("Vault", &["vault"])
+            .pick_file()
+    } else {
+        prompt_path("Chemin du vault à ouvrir : ")
+    }
+}
+
+/**
+* Choisit où créer un nouveau vault : dialogue natif si écran,
+* sinon saisie clavier du chemin. Renvoie None si annulé.
 */
 fn pick_new_vault() -> Option<PathBuf> {
-    rfd::FileDialog::new()
-        .set_title("Créer un vault")
-        .add_filter("Vault", &["vault"])
-        .set_file_name("safe.vault")
-        .save_file()
+    if has_display() {
+        rfd::FileDialog::new()
+            .set_title("Créer un vault")
+            .add_filter("Vault", &["vault"])
+            .set_file_name("safe.vault")
+            .save_file()
+    } else {
+        prompt_path("Chemin du nouveau vault : ")
+    }
 }
 
 /*
@@ -565,21 +713,26 @@ fn get_entry(vault: &PasswordVault, args: &str) -> io::Result<()> {
 /**
 * Supprime une entrée du vault par alias
 */
-fn delete_entry(vault: &mut PasswordVault, path: &Path) -> io::Result<()> {
+fn delete_entry(vault: &mut PasswordVault, args: &str, path: &Path) -> io::Result<()> {
     if vault.credentials.is_empty() {
         println!("Le vault est vide.");
         return Ok(());
     }
 
-    list_entries(vault);
-    print!("Alias à supprimer : ");
-    io::stdout().flush()?;
-    let mut alias = String::new();
-    io::stdin().read_line(&mut alias)?;
-    let alias = alias.trim();
+    // Alias fourni en argument (delete github), sinon demandé au clavier
+    let alias: String = if !args.is_empty() {
+        args.to_string()
+    } else {
+        list_entries(vault);
+        print!("Alias à supprimer : ");
+        io::stdout().flush()?;
+        let mut a = String::new();
+        io::stdin().read_line(&mut a)?;
+        a.trim().to_string()
+    };
 
     // Vérifier si l'entrée existe
-    if !vault.credentials.contains_key(alias) {
+    if !vault.credentials.contains_key(&alias) {
         println!("Aucune entrée trouvée pour l'alias '{}'", alias);
         println!("\nEntrées disponibles :");
         for key in vault.credentials.keys() {
@@ -589,7 +742,7 @@ fn delete_entry(vault: &mut PasswordVault, path: &Path) -> io::Result<()> {
     }
 
     // Afficher l'entrée à supprimer
-    if let Some(cred) = vault.credentials.get(alias) {
+    if let Some(cred) = vault.credentials.get(&alias) {
         println!("\n⚠️  Entrée à supprimer :");
         println!("Alias      : {}", alias);
         println!("Utilisateur: {}", cred.user);
@@ -605,10 +758,10 @@ fn delete_entry(vault: &mut PasswordVault, path: &Path) -> io::Result<()> {
     if confirmation == "oui" || confirmation == "o" || confirmation == "yes" || confirmation == "y" {
         // On retire l'entrée puis on sauvegarde ; si la sauvegarde échoue,
         // on la remet en mémoire pour rester cohérent avec le disque.
-        if let Some(removed) = vault.credentials.remove(alias)
+        if let Some(removed) = vault.credentials.remove(&alias)
             && let Err(e) = save_vault(vault, path)
         {
-            vault.credentials.insert(alias.to_string(), removed);
+            vault.credentials.insert(alias.clone(), removed);
             return Err(e);
         }
 
@@ -756,10 +909,16 @@ fn decrypt_vault(vault: &Vault, password: &str) -> io::Result<PasswordVault> {
 fn display_commands() {
     println!(
         r#"
+        Utilisation :
+            vault                     Ouvre le shell interactif
+            vault <commande> [args]   Exécute une seule commande puis quitte (SSH/script)
+            vault -f <fichier> ...    Cible un fichier précis (sinon $VAULT_FILE, sinon safe.vault)
+
         Commandes disponibles :
-        
+
         {GREEN}init{RESET}
-            Initialiser un nouveau coffre (choix du fichier via un dialogue)
+            Initialiser un nouveau coffre
+            (fenêtre de sélection si écran, sinon saisie du chemin au clavier)
 
         {GREEN}add [alias]{RESET}
             Ajoute une nouvelle entrée au vault
@@ -771,15 +930,16 @@ fn display_commands() {
             Récupère et affiche une entrée par alias
             Exemple : get github
 
-        {GREEN}gen{RESET}
-            Génère un mot de passe avec longueur
+        {GREEN}gen [longueur]{RESET}
+            Génère un mot de passe (longueur par défaut : 20)
 
-        {GREEN}delete{RESET}
+        {GREEN}delete [alias]{RESET}
             Supprime une entrée du vault par alias
             Exemple : delete github
 
         {GREEN}open{RESET}
-            Choisit et ouvre un vault via un dialogue de sélection de fichier
+            Choisit et ouvre un vault
+            (fenêtre de sélection si écran, sinon saisie du chemin au clavier)
 
         {GREEN}version{RESET}
             Affiche la version
@@ -787,8 +947,8 @@ fn display_commands() {
         {GREEN}help{RESET}
             Affiche cette aide
 
-        {GREEN}quit{RESET}
-            Sortir
+        {GREEN}quit{RESET} / {GREEN}exit{RESET}
+            Sortir (ou Ctrl-D)
 
         Note : Les données sont chiffrées avec AES-256-GCM
         "#
