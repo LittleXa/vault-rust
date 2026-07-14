@@ -121,13 +121,35 @@ vault version
 
 ### Choosing the vault file
 
-By default the vault is `./safe.vault` in the current directory. Override it:
+Vault picks the file to open in this order of priority:
+
+1. the `-f` / `--file <path>` option, if given;
+2. otherwise the `VAULT_FILE` environment variable, if set;
+3. otherwise `safe.vault` in the current directory.
 
 ```bash
-vault -f ~/perso.vault get gmail
-# or via environment variable:
-VAULT_FILE=~/perso.vault vault list
+vault -f ~/perso.vault get gmail       # explicit path, one time
+VAULT_FILE=~/perso.vault vault list    # via env var, one command
 ```
+
+**Make it permanent** (so `vault` finds your file from any directory) — add the
+variable to your shell profile:
+
+```bash
+echo 'export VAULT_FILE="$HOME/perso.vault"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+For graphical launchers / desktop shortcuts (which don't read `~/.bashrc`),
+either put `vault -f /home/you/perso.vault` in the launcher command, or set the
+variable session-wide in `~/.config/environment.d/10-vault.conf`:
+
+```
+VAULT_FILE=/home/you/perso.vault
+```
+
+> Use an absolute path (`/home/you/...` or `$HOME/...`). Inside
+> `environment.d`, `~` is **not** expanded.
 
 ### Over SSH
 
