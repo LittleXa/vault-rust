@@ -108,8 +108,11 @@ fn main() -> io::Result<()> {
 
         //Collecte des arguments de la commande
         let collect_args: Vec<&str> = input.split_whitespace().collect();
-        let command = collect_args[0];
-        let args = collect_args.get(1).unwrap_or(&""); // valeur par défaut
+        let command = match collect_args.first() {
+            Some(c) => *c,
+            None => continue, // ligne vide → on redemande une commande
+        };
+        let args = collect_args.get(1).unwrap_or(&"");
 
         //let alias: String =
         // Traite la commande
