@@ -8,11 +8,14 @@
 */
 
 //Global constants
-const VERSION: &str = "1.4.2";
+const VERSION: &str = "1.5.0";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
 const RED: &str    = "\x1b[1;31m";
+const BLUE: &str   = "\x1b[1;34m";
+const BOLD: &str   = "\x1b[1m";
+const DIM: &str    = "\x1b[2m";
 const RESET: &str  = "\x1b[0m";
 
 //Pour recupere la saisie utilisateur
@@ -196,7 +199,7 @@ fn run_interactive(default_path: PathBuf) -> io::Result<()> {
         match open_vault(&default_path) {
             Ok(vault) => {
                 io::stdout().flush()?;
-                display_logo(true, &default_path);
+                display_logo(true, &default_path, vault.credentials.len());
                 println!("{GREEN}✓ Vault ouvert avec succès !{RESET}\n");
                 println!("Tapez {RED}quit{RESET} pour quitter ou {PURPLE}help{RESET} pour l'aide.");
                 vault_option = Some(vault);
@@ -306,7 +309,7 @@ fn run_interactive(default_path: PathBuf) -> io::Result<()> {
                 match pick_existing_vault() {
                     Some(path) => match open_vault(&path) {
                         Ok(vault) => {
-                            display_logo(true, &path);
+                            display_logo(true, &path, vault.credentials.len());
                             println!("{GREEN}✓ Vault ouvert avec succès !{RESET}");
                             vault_option = Some(vault);
                             current_path = Some(path);
@@ -359,9 +362,10 @@ fn run_interactive(default_path: PathBuf) -> io::Result<()> {
 }
 
 /**
-* Affichage de l'écran d'accueil
+* Affichage de l'écran d'accueil : logo en dégradé + panneau d'informations.
+* `entries` = nombre d'identifiants dans le vault ouvert.
 */
-fn display_logo(open: bool, path: &Path) {
+fn display_logo(open: bool, path: &Path, entries: usize) {
 
     let logo = [
         "██╗   ██╗ █████╗ ██╗   ██╗██╗   ████████╗",
@@ -372,27 +376,38 @@ fn display_logo(open: bool, path: &Path) {
         "  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═╝   ",
     ];
 
+    // Dégradé violet → cyan → bleu sur les lignes du logo
+    let palette = [PURPLE, PURPLE, CYAN, CYAN, BLUE, BLUE];
+
+    let status = if open {
+        format!("{GREEN}●{RESET} Ouvert 🔓")
+    } else {
+        format!("{RED}●{RESET} Verrouillé 🔒")
+    };
+
+    // Chaque ligne commence par une icône + un libellé aligné (11 caractères).
     let info = [
-        format!("{CYAN}vault@secure{RESET}"),
-        format!("{GREEN}OS:{RESET}           Windows | Linux"),
-        format!("{GREEN}Version:{RESET}      {VERSION}"),
-        format!("{GREEN}Shell:{RESET}        vault"),
-        format!("{GREEN}Security:{RESET}     AES-256 | Zero-Trust"),
-        format!("{GREEN}Storage Path:{RESET} {}", path.display()),
-        if !open {
-            format!("{GREEN}Status:{RESET}    {RED}Locked 🔒{RESET}")
-        } else {
-            format!("{GREEN}Status:{RESET}    {CYAN}Open 🔓{RESET}")
-        }
+        format!("{BOLD}{CYAN}vault@secure{RESET}"),
+        format!("{DIM}────────────────────────────{RESET}"),
+        format!("🔒  {GREEN}{:<11}{RESET} AES-256-GCM", "Chiffrement"),
+        format!("🧬  {GREEN}{:<11}{RESET} Argon2id", "Dérivation"),
+        format!("📇  {GREEN}{:<11}{RESET} {entries}", "Entrées"),
+        format!("📁  {GREEN}{:<11}{RESET} {}", "Fichier", path.display()),
+        format!("🏷   {GREEN}{:<11}{RESET} {VERSION}", "Version"),
+        format!("🚦  {GREEN}{:<11}{RESET} {status}", "Statut"),
     ];
 
-    let width = 55; // espace réservé au logo
+    let width = 44; // espace réservé au logo
 
+    println!();
     for i in 0..logo.len().max(info.len()) {
-        let left = logo.get(i).unwrap_or(&"");
+        let color = palette.get(i).copied().unwrap_or(CYAN);
+        let left = logo.get(i).copied().unwrap_or("");
         let right = info.get(i).map(|s| s.as_str()).unwrap_or("");
-        println!("{CYAN}{left:<width$}{RESET}  {right}");
+        println!("  {color}{left:<width$}{RESET}  {right}");
     }
+    println!("  {DIM}Secure Credentials Vault · chiffré de bout en bout{RESET}");
+    println!();
 }
 
 /**

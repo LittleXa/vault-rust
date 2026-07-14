@@ -30,21 +30,57 @@ are no longer needed.
 
 ## Installation
 
-### From GitHub
+### Linux — step by step
+
+**1. Install Rust** (if you don't have it yet):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"   # or reopen your terminal
+```
+
+**2. Install Vault Rust from GitHub:**
 
 ```bash
 cargo install --git https://github.com/LittleXa/vault-rust
-# a specific version:
-cargo install --git https://github.com/LittleXa/vault-rust --tag 1.4.0
+# or a specific version:
+cargo install --git https://github.com/LittleXa/vault-rust --tag 1.5.0
 ```
 
-The binary is named `vault-rust`. To call it `vault`, create an alias or a
-symlink (e.g. `ln -sf ~/.cargo/bin/vault-rust ~/.cargo/bin/vault`).
+Cargo compiles it and places the binary in `~/.cargo/bin/`.
+
+**3. Make sure `~/.cargo/bin` is in your PATH** (rustup usually does this):
+
+```bash
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**4. (Optional) Call it `vault` instead of `vault-rust`:**
+
+```bash
+ln -sf ~/.cargo/bin/vault-rust ~/.cargo/bin/vault
+```
+
+You can now run `vault` from anywhere:
+
+```bash
+vault version
+vault init
+vault get github
+```
+
+> The graphical file picker (`open` / `init`) uses `xdg-desktop-portal`, present
+> on most Linux desktops. On a headless machine or over SSH, it automatically
+> falls back to asking for the vault path on the keyboard — nothing extra to
+> install.
 
 ### From sources
 
 ```bash
-cargo build --release   # binary in target/release/vault-rust
+git clone https://github.com/LittleXa/vault-rust
+cd vault-rust
+cargo build --release        # binary in target/release/vault-rust
+sudo cp target/release/vault-rust /usr/local/bin/vault   # optional: system-wide as 'vault'
 ```
 
 ### Cross-compile for Linux with Docker
