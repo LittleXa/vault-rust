@@ -42,7 +42,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use colored::Colorize;
 
 //Effacement mémoire des secrets
-use zeroize::Zeroizing;
+use zeroize::{Zeroizing, Zeroize, ZeroizeOnDrop};
 
 /**
 * Structure de tableau de type unsigned 8bits
@@ -57,7 +57,9 @@ struct Vault {
     cyphertext: Vec<u8>
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+// Zeroize + ZeroizeOnDrop : le contenu (user + password) est effacé de la RAM
+// dès qu'un Credential est libéré (suppression d'entrée ou fermeture du vault).
+#[derive(Serialize, Deserialize, Clone, Zeroize, ZeroizeOnDrop)]
 struct Credential {
     user: String,
     password: String,

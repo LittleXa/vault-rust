@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Effacement mémoire des secrets (mot de passe maître, clés, tampons en clair) via zeroize
+- Effacement mémoire des identifiants du vault au Drop (ZeroizeOnDrop sur Credential)
 - Retrait de `Debug` sur les structures sensibles
 
 ## [1.2.2] - 2026-02-08
