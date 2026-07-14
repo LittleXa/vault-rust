@@ -435,8 +435,12 @@ fn add_entry(vault: &mut PasswordVault, args: &str) -> io::Result<()> {
 
             vault.credentials.insert(alias.clone(), credential);
 
-            // Sauvegarder le vault
-            save_vault(vault)?;
+            // Sauvegarder le vault ; si la sauvegarde échoue (ex. mauvais mot de
+            // passe), on annule l'ajout en mémoire pour rester cohérent avec le disque.
+            if let Err(e) = save_vault(vault) {
+                vault.credentials.remove(&alias);
+                return Err(e);
+            }
 
             println!("Entrée '{}' ajoutée avec succès !", alias);
         }
@@ -559,11 +563,15 @@ fn delete_entry(vault: &mut PasswordVault) -> io::Result<()> {
     let confirmation = confirmation.trim().to_lowercase();
 
     if confirmation == "oui" || confirmation == "o" || confirmation == "yes" || confirmation == "y" {
-        vault.credentials.remove(alias);
-        
-        // Sauvegarder le vault
-        save_vault(vault)?;
-        
+        // On retire l'entrée puis on sauvegarde ; si la sauvegarde échoue,
+        // on la remet en mémoire pour rester cohérent avec le disque.
+        if let Some(removed) = vault.credentials.remove(alias) {
+            if let Err(e) = save_vault(vault) {
+                vault.credentials.insert(alias.to_string(), removed);
+                return Err(e);
+            }
+        }
+
         println!("{GREEN}✓ Entrée '{}' supprimée avec succès !{RESET}", alias);
     } else {
         println!("Suppression annulée.");
@@ -582,20 +590,42 @@ fn save_vault(vault: &PasswordVault) -> io::Result<()> {
     let json_data = serde_json::to_string(&vault)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    // Lire le sel et nonce existants
+    // Lire le contenu existant (sel + nonce + ciphertext)
     let mut file = File::open("safe.vault")?;
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
 
+    // Garde : fichier corrompu ou incomplet (16 octets de sel + 12 de nonce = 28 minimum)
+    if data.len() < 28 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Fichier vault corrompu ou incomplet",
+        ));
+    }
+
     let salt: [u8; 16] = data[0..16].try_into()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Salt invalide"))?;
-    
-    // Dériver la clé
+    let old_nonce_bytes: [u8; 12] = data[16..28].try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Nonce invalide"))?;
+    let old_ciphertext = &data[28..];
+
+    // Dériver la clé à partir du mot de passe saisi
     let key_bytes = derive_key(&password, &salt)?;
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
 
-    // Nouveau nonce pour chaque sauvegarde
+    // VÉRIFICATION : on déchiffre l'ancien contenu avec cette clé.
+    // Si ça échoue, le mot de passe est faux → on refuse d'écraser le vault
+    // pour éviter de le rendre définitivement illisible.
+    let old_nonce = Nonce::from_slice(&old_nonce_bytes);
+    if cipher.decrypt(old_nonce, old_ciphertext).is_err() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Mot de passe incorrect — sauvegarde annulée pour ne pas corrompre le vault",
+        ));
+    }
+
+    // Mot de passe validé : nouveau nonce pour cette sauvegarde
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
