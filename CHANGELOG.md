@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.4.2] - 2026-07-14
+
+### Changed
+
+- Les mots de passe (maître et entrées) ne sont plus « trimmés » : les espaces
+  en début/fin sont désormais préservés (entropie complète, espaces autorisés).
+  Le trim reste appliqué aux autres saisies (alias, utilisateur, chemin…).
+
+### Note
+
+- Compatibilité : un vault existant reste lisible tant que son mot de passe maître
+  n'avait pas d'espace en début/fin (cas quasi inexistant).
+
 ## [1.4.1] - 2026-07-14
 
 ### Changed

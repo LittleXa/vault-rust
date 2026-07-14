@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.4.1";
+const VERSION: &str = "1.4.2";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -405,7 +405,9 @@ fn get_password() -> io::Result<Zeroizing<String>> {
 
     let password = rpassword::prompt_password("Mot de passe du coffre : ")
         .map_err(io::Error::other)?;
-    let password = Zeroizing::new(password.trim().to_string());
+    // Pas de trim : le mot de passe est pris exactement tel qu'il est saisi
+    // (les espaces comptent). rpassword ne renvoie pas de retour à la ligne.
+    let password = Zeroizing::new(password);
 
     if password.is_empty() {
         return Err(io::Error::new(
@@ -515,8 +517,8 @@ fn init(path: &Path) -> io::Result<()> {
             }
         };
 
-        if p.trim() == confirm.trim() {
-            break p; // Sort de la boucle si les mots de passe correspondent
+        if *p == *confirm {
+            break p; // Sort de la boucle si les mots de passe correspondent (comparaison exacte)
         }
         println!("Les mots de passe ne correspondent pas. Veuillez réessayer.");
     };
@@ -537,7 +539,7 @@ fn init(path: &Path) -> io::Result<()> {
     //Dériver la clé avec Argon2
     let mut key_bytes = Zeroizing::new([0u8; 32]);
     Argon2::default()
-        .hash_password_into(password.trim().as_bytes(), &salt, key_bytes.as_mut_slice())
+        .hash_password_into(password.as_bytes(), &salt, key_bytes.as_mut_slice())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     
     //Clé de chiffrement au format AES 256
@@ -612,9 +614,9 @@ fn add_entry(vault: &mut PasswordVault, args: &str, path: &Path) -> io::Result<(
 
             io::stdout().flush()?;
 
+            // Pas de trim : le mot de passe est stocké exactement tel qu'il est saisi
             let password = rpassword::prompt_password("Mot de passe : ")
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-            let password = password.trim().to_string();
 
             let credential = Credential {
                 user: username,
