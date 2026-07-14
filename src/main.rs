@@ -8,7 +8,7 @@
 */
 
 //Global constants
-const VERSION: &str = "1.5.0";
+const VERSION: &str = "1.5.1";
 const PURPLE: &str = "\x1b[1;35m";
 const CYAN: &str   = "\x1b[1;36m";
 const GREEN: &str  = "\x1b[1;32m";
@@ -387,7 +387,7 @@ fn display_logo(open: bool, path: &Path, entries: usize) {
 
     // Chaque ligne commence par une icône + un libellé aligné (11 caractères).
     let info = [
-        format!("{BOLD}{CYAN}vault@secure{RESET}"),
+        format!("{BOLD}{CYAN}Statistiques{RESET}"),
         format!("{DIM}────────────────────────────{RESET}"),
         format!("🔒  {GREEN}{:<11}{RESET} AES-256-GCM", "Chiffrement"),
         format!("🧬  {GREEN}{:<11}{RESET} Argon2id", "Dérivation"),
